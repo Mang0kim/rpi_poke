@@ -4,54 +4,67 @@
 # -------------------------------
 import cv2
 import sys
+import time
 
 # -------------------------------
 # 2) Global settings / variables
 # -------------------------------
-VIDEO_FILES = ["01.mp4", "02.mp4", "03.mp4"]
 WINDOW_NAME = "Player"
-HEADLESS = False   # Set True for headless mode (no display), False for fullscreen display
+HEADLESS = False        # True = no display
+RESPECT_TIMING = True   # Match original FPS even in headless
+SPEED_SCALE = 1.0       # 1.0 = normal, 0.5 = half speed, 2.0 = double
 
 # -------------------------------
 # 3) Functions
 # -------------------------------
-def play_video(path: str) -> bool:
-    """Play a single video file once. Return False if open/read fails, True otherwise."""
+def _calc_delay_ms(cap) -> int:
+    """Compute frame delay (ms) from video FPS with fallback."""
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if not fps or fps <= 1e-3:
+        fps = 30.0  # fallback
+    delay = max(1, int(round(1000.0 / fps)))
+    # Apply speed scale (e.g., 0.5 => slower => larger delay)
+    delay = max(1, int(round(delay / max(1e-6, SPEED_SCALE))))
+    return delay
+
+def play(path: str) -> bool:
+    """Generic video play function (FPS-synced)."""
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
         print(f"[Error] Cannot open video: {path}")
         return False
 
+    delay_ms = _calc_delay_ms(cap)
+
     if not HEADLESS:
         cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
-        # Fullscreen mode
         cv2.setWindowProperty(WINDOW_NAME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
     while True:
         ret, frame = cap.read()
         if not ret:
-            break  # end of file
+            break
         if not HEADLESS:
             cv2.imshow(WINDOW_NAME, frame)
-            if cv2.waitKey(1) & 0xFF == 27:  # Esc key
+            # Esc to quit early
+            if cv2.waitKey(delay_ms) & 0xFF == 27:
                 cap.release()
                 return True
         else:
-            # In headless mode, just read frames without display
-            continue
+            # Headless timing control
+            if RESPECT_TIMING:
+                time.sleep(delay_ms / 1000.0)
+            # If not respecting timing, loop as fast as possible
 
     cap.release()
     return True
 
-def play_sequence_once(files) -> None:
-    """Play 01 -> 02 -> 03 exactly once each."""
-    for f in files:
-        ok = play_video(f)
-        if not ok:
-            continue
+def play01(): return play("01.mp4")
+def play02(): return play("02.mp4")
+def play03(): return play("03.mp4")
+def play03_1(): return play("03-1.mp4")
 
 def cleanup():
-    """Release all windows."""
     if not HEADLESS:
         cv2.destroyAllWindows()
 
@@ -61,8 +74,11 @@ def cleanup():
 if __name__ == "__main__":
     try:
         while True:
-            play_sequence_once(VIDEO_FILES)
-            break  # play once then exit (remove this 'break' for endless loop)
+            play01()
+            play02()
+            play03()
+            play03_1()
+            break  # remove for endless loop
     except KeyboardInterrupt:
         pass
     finally:
