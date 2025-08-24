@@ -12,6 +12,10 @@ import sys
 
 from hx711 import HX711  # gandalf15/HX711 라이브러리
 
+import RPi.GPIO as GPIO
+
+GPIO.setmode(GPIO.BCM)
+
 # -------------------------------
 # USER SETTINGS
 # -------------------------------
