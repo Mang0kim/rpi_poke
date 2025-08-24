@@ -10,7 +10,7 @@ import threading
 import signal
 import sys
 
-from HX711 import HX711  # gandalf15/HX711 라이브러리
+from hx711 import HX711  # gandalf15/HX711 라이브러리
 
 # -------------------------------
 # USER SETTINGS
@@ -90,7 +90,7 @@ def play_video(path: str) -> bool:
 # HX711 Reader Thread
 # -------------------------------
 def hx711_reader():
-    hx = HX711(dout=DOUT_PIN, pd_sck=SCK_PIN)
+    hx = HX711(DOUT_PIN, SCK_PIN)
     hx.reset()
     hx.tare()  # 초기 영점 맞춤
 
