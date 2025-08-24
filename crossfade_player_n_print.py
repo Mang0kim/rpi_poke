@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Video player (OpenCV) + HX711 reader (gandalf15/HX711)
+- 보정 점 2개 기반으로 A, B 재계산 반영
 """
 
 import cv2
@@ -11,7 +12,6 @@ import signal
 import sys
 
 from hx711 import HX711  # gandalf15/HX711 라이브러리
-
 import RPi.GPIO as GPIO
 
 GPIO.setmode(GPIO.BCM)
@@ -25,9 +25,9 @@ WINDOW_NAME = "Player"
 HEADLESS = False
 SPEED_SCALE = 1.0
 
-# 무게 변환 식
-A = 0.03557
-B = 7059.6
+# 무게 변환 식 (보정 결과)
+A = 0.0355646605
+B = 7058.9651551
 
 PRINT_EVERY = 0.2  # seconds
 
@@ -92,12 +92,15 @@ def play_video(path: str) -> bool:
 # -------------------------------
 def hx711_reader():
     hx.reset()
+
+    # 참고: 아래 offset/set_offset은 get_data_mean()에 주로 영향.
+    # 우리는 get_raw_data_mean()을 쓰므로 계산엔 직접 영향 없음.
     offset = hx.get_raw_data_mean(20)
-    if offset:
+    if offset is not None:
         hx.set_offset(offset)
         print(f"[HX711] offset set to {offset}")
     else:
-        print("[HX711] warnign: could not set offset")
+        print("[HX711] warning: could not set offset")
 
     last_print = 0.0
     try:
