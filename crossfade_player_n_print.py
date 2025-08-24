@@ -92,7 +92,12 @@ def play_video(path: str) -> bool:
 # -------------------------------
 def hx711_reader():
     hx.reset()
-    hx.tare()  # 초기 영점 맞춤
+    offset = hx.get_raw_data_mean(20)
+    if offset:
+        hx.set_offset(offset)
+        print(f"[HX711] offset set to {offset}")
+    else:
+        print("[HX711] warnign: could not set offset")
 
     last_print = 0.0
     try:
@@ -109,7 +114,6 @@ def hx711_reader():
             time.sleep(0.05)
     except Exception as e:
         print("[HX711] exception:", e)
-
 
 # -------------------------------
 # MAIN
