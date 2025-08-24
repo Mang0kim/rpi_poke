@@ -121,6 +121,8 @@ def play_video(path: str) -> bool:
 # HX711 Reader Thread
 # -------------------------------
 def hx711_reader():
+    global zero_raw
+    
     hx.reset()
 
     # (Optional) align get_data_mean() offset, though we use get_raw_data_mean()
