@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 Video player (OpenCV) + HX711 (gandalf15/HX711)
-- Zero-based: weight = A * (EMA(raw) - zero_raw)
+- weight = A * (EMA(raw) - zero_raw)
 - Start auto-zero, re-zero with 'Z'
-- Adaptive EMA: 큰 변화는 빠르게, 잔잔할 때는 부드럽게
-- Zero-Lock: 0 근처에서 빠르게 0으로 스냅(영점 고정)
+- Adaptive EMA (fast on large changes)
+- Zero-Lock: near-zero snap for fast return
+- One-key gain calibration: press 'C' with a known mass on the scale
 """
 
 import cv2
@@ -30,34 +31,38 @@ WINDOW_NAME  = "Player"
 HEADLESS     = False
 SPEED_SCALE  = 1.0
 
-# Calibration slope (two-point fit)
+# Calibration slope (initial; can be re-calibrated with 'C')
 A = 0.0355646605  # grams per raw-count
 
+# Known mass for gain calibration (in grams)
+CAL_MASS_G = 69200.0  # 예: 69.2 kg
+
 # Sampling / smoothing
-ZERO_SAMPLES = 60      # 자동/재영점 시 평균 샘플 수
-READ_SAMPLES = 12      # 평상시 읽기 평균 샘플 수
+ZERO_SAMPLES = 60      # auto/re-zero averaging
+READ_SAMPLES = 12      # per-read averaging
 
-# --- Adaptive EMA (잔잔할 땐 SLOW, 큰 변동은 FAST) ---
-EMA_ALPHA_SLOW   = 0.12   # 0~1, 작을수록 부드럽게
-EMA_ALPHA_FAST   = 0.50   # 큰 변동일 때 빨리 따라감
-DELTA_RAW_FAST   = 400    # |raw - ema| >= 이면 FAST 사용
+# Adaptive EMA
+EMA_ALPHA_SLOW = 0.12  # steady state
+EMA_ALPHA_FAST = 0.50  # when big jump
+DELTA_RAW_FAST = 400   # |raw - ema| >= -> FAST
 
-# 출력/루프
-PRINT_EVERY = 0.2         # s
-LOOP_SLEEP  = 0.04        # s (~25Hz)
+# Printing / loop timing
+PRINT_EVERY = 0.2      # seconds
+LOOP_SLEEP  = 0.04     # seconds (~25 Hz)
 
-# --- Zero-Lock (0 근처에서 빠른 복귀) ---
-ZERO_LOCK_THRESHOLD = 5.0   # g, 이 범위 이내면 '거의 0'
-ZERO_LOCK_MIN_TIME  = 0.4   # s, 이 시간 연속 유지되면 zero_raw를 EMA로 스냅
+# Zero-Lock
+ZERO_LOCK_THRESHOLD = 5.0  # g
+ZERO_LOCK_MIN_TIME  = 0.4  # s
 
 # -------------------------------
 # Control flags / shared state
 # -------------------------------
-stop_event   = threading.Event()
-zero_request = threading.Event()
-state_lock   = threading.Lock()   # zero_raw 보호
+stop_event    = threading.Event()
+zero_request  = threading.Event()
+cal_request   = threading.Event()  # 'C' pressed -> gain calibration
+state_lock    = threading.Lock()   # protects zero_raw and A
 
-zero_raw = None  # 전역 영점(raw), 시작/재영점 시 갱신
+zero_raw = None  # updated on (re)zero
 
 def _install_sig_handlers():
     def _handler(sig, frame):
@@ -77,11 +82,11 @@ def _calc_delay_ms(cap) -> int:
     return delay
 
 def _measure_zero_raw():
-    """빈하중 raw 평균 리턴(None 가능)."""
+    """Averaged empty-load raw (or None)."""
     return hx.get_raw_data_mean(ZERO_SAMPLES)
 
 def _auto_zero(tag="start") -> bool:
-    """현재 빈하중으로 zero_raw 설정."""
+    """Set zero_raw from current empty-load measurement."""
     global zero_raw
     raw0 = _measure_zero_raw()
     if raw0 is None:
@@ -122,6 +127,9 @@ def play_video(path: str) -> bool:
             elif key in (ord('z'), ord('Z')):
                 print("[CAL] Z pressed -> re-zero request (remove all weight)")
                 zero_request.set()
+            elif key in (ord('c'), ord('C')):
+                print(f"[CAL] C pressed -> gain calibration request (mass={CAL_MASS_G} g)")
+                cal_request.set()
         else:
             time.sleep(delay_ms / 1000.0)
 
@@ -132,16 +140,16 @@ def play_video(path: str) -> bool:
 # HX711 Reader Thread
 # -------------------------------
 def hx711_reader():
-    global zero_raw
+    global zero_raw, A
     hx.reset()
 
-    # get_data_mean() 용 offset 정렬(우리는 raw 사용하지만 내부 일관성용)
+    # Align get_data_mean() offset (we use raw, but keeps lib consistent)
     off = hx.get_raw_data_mean(20)
     if off is not None:
         hx.set_offset(off)
         print(f"[HX711] offset (for get_data_mean) set to {off}")
 
-    # 시작 자동 영점
+    # Start auto-zero
     if not _auto_zero("start"):
         with state_lock:
             zero_raw = off if off is not None else 0
@@ -152,17 +160,17 @@ def hx711_reader():
 
     try:
         while not stop_event.is_set():
-            # 재영점 처리
+            # Re-zero request
             if zero_request.is_set():
-                time.sleep(0.5)      # 무게 제거 시간
+                time.sleep(0.5)  # time to clear the scale
                 if _auto_zero("re-zero"):
-                    smoothed_raw = None   # 이전 EMA 편향 제거
+                    smoothed_raw = None
                     zero_win_start = None
                 zero_request.clear()
 
             raw = hx.get_raw_data_mean(READ_SAMPLES)
             if raw is not None:
-                # --- Adaptive EMA ---
+                # Adaptive EMA
                 if smoothed_raw is None:
                     smoothed_raw = raw
                 else:
@@ -170,26 +178,42 @@ def hx711_reader():
                     alpha = EMA_ALPHA_FAST if delta >= DELTA_RAW_FAST else EMA_ALPHA_SLOW
                     smoothed_raw = alpha * raw + (1.0 - alpha) * smoothed_raw
 
-                # 무게 계산
+                # Compute weight
                 with state_lock:
                     zr = zero_raw
-                weight = A * (smoothed_raw - zr)
+                    curA = A
+                weight = curA * (smoothed_raw - zr)
 
                 now = time.time()
 
-                # --- Zero-Lock: 0 근처에서 빠른 복귀 ---
+                # Zero-Lock (snap to zero when near 0 for a short time)
                 if abs(weight) < ZERO_LOCK_THRESHOLD:
                     if zero_win_start is None:
                         zero_win_start = now
                     elif (now - zero_win_start) >= ZERO_LOCK_MIN_TIME:
                         with state_lock:
-                            zero_raw = smoothed_raw  # 영점 스냅
+                            zero_raw = smoothed_raw
                         zero_win_start = None
                         print("[CAL] zero-lock: zero_raw snapped to EMA for fast return")
                 else:
                     zero_win_start = None
 
-                # 출력
+                # Gain calibration (press 'C' with known mass on the scale)
+                if cal_request.is_set():
+                    with state_lock:
+                        zr_local = zero_raw
+                    delta_counts = smoothed_raw - zr_local
+                    if abs(delta_counts) > 1.0:
+                        newA = CAL_MASS_G / float(delta_counts)
+                        with state_lock:
+                            oldA = A
+                            A = newA
+                        print(f"[CAL] gain: delta={int(delta_counts)}, A(old)={oldA:.8f} -> A(new)={newA:.8f}")
+                    else:
+                        print("[CAL] gain: delta too small; put the mass on the scale.")
+                    cal_request.clear()
+
+                # Print
                 if (now - last_print) >= PRINT_EVERY:
                     print(f"[HX711] raw={int(raw)}, ema={int(smoothed_raw)}, zero_raw={int(zr)}, weight={weight:.2f}")
                     last_print = now
