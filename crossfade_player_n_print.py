@@ -1,11 +1,11 @@
-#ver10
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Video player (OpenCV) + HX711 (gandalf15/HX711)
-- Zero-based conversion: weight = A * (EMA(raw) - zero_raw)
-- Auto zero at start, re-zero with 'Z'
-- EMA filter to reduce jitter
+- Zero-based: weight = A * (EMA(raw) - zero_raw)
+- Start auto-zero, re-zero with 'Z'
+- Adaptive EMA: 큰 변화는 빠르게, 잔잔할 때는 부드럽게
+- Zero-Lock: 0 근처에서 빠르게 0으로 스냅(영점 고정)
 """
 
 import cv2
@@ -25,28 +25,39 @@ hx = HX711(dout_pin=5, pd_sck_pin=6)  # DOUT=GPIO5, SCK=GPIO6
 # -------------------------------
 # USER SETTINGS
 # -------------------------------
-VIDEO_PATH = "01.mp4"
-WINDOW_NAME = "Player"
-HEADLESS = False
-SPEED_SCALE = 1.0
+VIDEO_PATH   = "01.mp4"
+WINDOW_NAME  = "Player"
+HEADLESS     = False
+SPEED_SCALE  = 1.0
 
-# Calibration slope (from your two-point fit)
+# Calibration slope (two-point fit)
 A = 0.0355646605  # grams per raw-count
 
 # Sampling / smoothing
-ZERO_SAMPLES = 60      # samples used to compute zero_raw
-READ_SAMPLES = 12      # samples per read for mean
-EMA_ALPHA = 0.12       # 0~1, smaller -> smoother
-PRINT_EVERY = 0.2      # seconds
+ZERO_SAMPLES = 60      # 자동/재영점 시 평균 샘플 수
+READ_SAMPLES = 12      # 평상시 읽기 평균 샘플 수
+
+# --- Adaptive EMA (잔잔할 땐 SLOW, 큰 변동은 FAST) ---
+EMA_ALPHA_SLOW   = 0.12   # 0~1, 작을수록 부드럽게
+EMA_ALPHA_FAST   = 0.50   # 큰 변동일 때 빨리 따라감
+DELTA_RAW_FAST   = 400    # |raw - ema| >= 이면 FAST 사용
+
+# 출력/루프
+PRINT_EVERY = 0.2         # s
+LOOP_SLEEP  = 0.04        # s (~25Hz)
+
+# --- Zero-Lock (0 근처에서 빠른 복귀) ---
+ZERO_LOCK_THRESHOLD = 5.0   # g, 이 범위 이내면 '거의 0'
+ZERO_LOCK_MIN_TIME  = 0.4   # s, 이 시간 연속 유지되면 zero_raw를 EMA로 스냅
 
 # -------------------------------
 # Control flags / shared state
 # -------------------------------
-stop_event = threading.Event()
+stop_event   = threading.Event()
 zero_request = threading.Event()
-state_lock = threading.Lock()   # protects zero_raw
+state_lock   = threading.Lock()   # zero_raw 보호
 
-zero_raw = None                 # updated at auto-zero / re-zero
+zero_raw = None  # 전역 영점(raw), 시작/재영점 시 갱신
 
 def _install_sig_handlers():
     def _handler(sig, frame):
@@ -66,11 +77,11 @@ def _calc_delay_ms(cap) -> int:
     return delay
 
 def _measure_zero_raw():
-    """Return averaged raw at empty load (or None)."""
+    """빈하중 raw 평균 리턴(None 가능)."""
     return hx.get_raw_data_mean(ZERO_SAMPLES)
 
-def _auto_zero(tag="start"):
-    """Set zero_raw from current empty-load measurement."""
+def _auto_zero(tag="start") -> bool:
+    """현재 빈하중으로 zero_raw 설정."""
     global zero_raw
     raw0 = _measure_zero_raw()
     if raw0 is None:
@@ -122,54 +133,70 @@ def play_video(path: str) -> bool:
 # -------------------------------
 def hx711_reader():
     global zero_raw
-    
     hx.reset()
 
-    # (Optional) align get_data_mean() offset, though we use get_raw_data_mean()
+    # get_data_mean() 용 offset 정렬(우리는 raw 사용하지만 내부 일관성용)
     off = hx.get_raw_data_mean(20)
     if off is not None:
         hx.set_offset(off)
         print(f"[HX711] offset (for get_data_mean) set to {off}")
 
-    # Auto zero at start
+    # 시작 자동 영점
     if not _auto_zero("start"):
-        # fallback: take whatever we have to avoid None
         with state_lock:
             zero_raw = off if off is not None else 0
 
-    smoothed_raw = None
-    last_print = 0.0
+    smoothed_raw   = None
+    zero_win_start = None
+    last_print     = 0.0
 
     try:
         while not stop_event.is_set():
-            # Handle re-zero request
+            # 재영점 처리
             if zero_request.is_set():
-                time.sleep(0.5)   # give operator time to clear the scale
+                time.sleep(0.5)      # 무게 제거 시간
                 if _auto_zero("re-zero"):
-                    smoothed_raw = None    # reset EMA to avoid bias carryover
+                    smoothed_raw = None   # 이전 EMA 편향 제거
+                    zero_win_start = None
                 zero_request.clear()
 
             raw = hx.get_raw_data_mean(READ_SAMPLES)
             if raw is not None:
-                # EMA filter
+                # --- Adaptive EMA ---
                 if smoothed_raw is None:
                     smoothed_raw = raw
                 else:
-                    smoothed_raw = EMA_ALPHA * raw + (1.0 - EMA_ALPHA) * smoothed_raw
+                    delta = abs(raw - smoothed_raw)
+                    alpha = EMA_ALPHA_FAST if delta >= DELTA_RAW_FAST else EMA_ALPHA_SLOW
+                    smoothed_raw = alpha * raw + (1.0 - alpha) * smoothed_raw
 
+                # 무게 계산
                 with state_lock:
                     zr = zero_raw
-
                 weight = A * (smoothed_raw - zr)
 
                 now = time.time()
-                if now - last_print >= PRINT_EVERY:
+
+                # --- Zero-Lock: 0 근처에서 빠른 복귀 ---
+                if abs(weight) < ZERO_LOCK_THRESHOLD:
+                    if zero_win_start is None:
+                        zero_win_start = now
+                    elif (now - zero_win_start) >= ZERO_LOCK_MIN_TIME:
+                        with state_lock:
+                            zero_raw = smoothed_raw  # 영점 스냅
+                        zero_win_start = None
+                        print("[CAL] zero-lock: zero_raw snapped to EMA for fast return")
+                else:
+                    zero_win_start = None
+
+                # 출력
+                if (now - last_print) >= PRINT_EVERY:
                     print(f"[HX711] raw={int(raw)}, ema={int(smoothed_raw)}, zero_raw={int(zr)}, weight={weight:.2f}")
                     last_print = now
             else:
                 print("[HX711] invalid data")
 
-            time.sleep(0.04)  # ~25Hz
+            time.sleep(LOOP_SLEEP)
     except Exception as e:
         print("[HX711] exception:", e)
 
