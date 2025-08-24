@@ -15,6 +15,7 @@ from hx711 import HX711  # gandalf15/HX711 라이브러리
 import RPi.GPIO as GPIO
 
 GPIO.setmode(GPIO.BCM)
+hx = HX711(dout_pin=5, pd_sck_pin=6)
 
 # -------------------------------
 # USER SETTINGS
@@ -23,10 +24,6 @@ VIDEO_PATH = "01.mp4"
 WINDOW_NAME = "Player"
 HEADLESS = False
 SPEED_SCALE = 1.0
-
-# HX711 핀 (BCM numbering)
-DOUT_PIN = 5   # 예시: GPIO5
-SCK_PIN = 6    # 예시: GPIO6
 
 # 무게 변환 식
 A = 0.03557
@@ -94,7 +91,6 @@ def play_video(path: str) -> bool:
 # HX711 Reader Thread
 # -------------------------------
 def hx711_reader():
-    hx = HX711(DOUT_PIN, SCK_PIN)
     hx.reset()
     hx.tare()  # 초기 영점 맞춤
 
