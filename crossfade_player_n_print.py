@@ -1,10 +1,11 @@
+#ver10
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Video player (OpenCV) + HX711 reader (gandalf15/HX711)
-- Start-time auto zero: measure raw mean -> B = -A * raw0
-- Re-zero with 'Z' key while empty load
-- EMA filter on raw to reduce jitter
+Video player (OpenCV) + HX711 (gandalf15/HX711)
+- Zero-based conversion: weight = A * (EMA(raw) - zero_raw)
+- Auto zero at start, re-zero with 'Z'
+- EMA filter to reduce jitter
 """
 
 import cv2
@@ -29,22 +30,23 @@ WINDOW_NAME = "Player"
 HEADLESS = False
 SPEED_SCALE = 1.0
 
-# Calibration (from your two-point fit)
-A = 0.0355646605   # slope
-B = 7058.9651551   # will be replaced by auto-zero at runtime
+# Calibration slope (from your two-point fit)
+A = 0.0355646605  # grams per raw-count
 
-# Reading / smoothing
-ZERO_SAMPLES = 60      # samples to average for zeroing
-READ_SAMPLES = 12      # samples to average each read
-EMA_ALPHA = 0.12       # 0~1, lower = smoother
+# Sampling / smoothing
+ZERO_SAMPLES = 60      # samples used to compute zero_raw
+READ_SAMPLES = 12      # samples per read for mean
+EMA_ALPHA = 0.12       # 0~1, smaller -> smoother
 PRINT_EVERY = 0.2      # seconds
 
 # -------------------------------
-# Control flags / locks
+# Control flags / shared state
 # -------------------------------
 stop_event = threading.Event()
 zero_request = threading.Event()
-cal_lock = threading.Lock()   # protects B (and optional state)
+state_lock = threading.Lock()   # protects zero_raw
+
+zero_raw = None                 # updated at auto-zero / re-zero
 
 def _install_sig_handlers():
     def _handler(sig, frame):
@@ -53,7 +55,7 @@ def _install_sig_handlers():
     signal.signal(signal.SIGTERM, _handler)
 
 # -------------------------------
-# Helpers: delay calc, zeroing
+# Helpers
 # -------------------------------
 def _calc_delay_ms(cap) -> int:
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -63,21 +65,21 @@ def _calc_delay_ms(cap) -> int:
     delay = max(1, int(round(delay / max(1e-6, SPEED_SCALE))))
     return delay
 
-def _auto_zero():
-    """
-    Measure empty-load raw mean and set B = -A * raw0.
-    Return raw0 if success, else None.
-    """
-    global B
-    raw0 = hx.get_raw_data_mean(ZERO_SAMPLES)
+def _measure_zero_raw():
+    """Return averaged raw at empty load (or None)."""
+    return hx.get_raw_data_mean(ZERO_SAMPLES)
+
+def _auto_zero(tag="start"):
+    """Set zero_raw from current empty-load measurement."""
+    global zero_raw
+    raw0 = _measure_zero_raw()
     if raw0 is None:
-        print("[CAL] zero measurement failed")
-        return None
-    newB = -A * raw0
-    with cal_lock:
-        B = newB
-    print(f"[CAL] zero raw={raw0}, A={A:.9f}, B={newB:.4f}")
-    return raw0
+        print(f"[CAL] {tag}: zero measurement failed")
+        return False
+    with state_lock:
+        zero_raw = raw0
+    print(f"[CAL] {tag}: zero_raw set to {raw0}")
+    return True
 
 # -------------------------------
 # Video Player
@@ -121,17 +123,18 @@ def play_video(path: str) -> bool:
 def hx711_reader():
     hx.reset()
 
-    # Note: set_offset affects get_data_mean(), not get_raw_data_mean().
-    # We'll still set it to the initial raw mean for internal consistency.
-    offset_for_data_mean = hx.get_raw_data_mean(20)
-    if offset_for_data_mean is not None:
-        hx.set_offset(offset_for_data_mean)
-        print(f"[HX711] offset (for get_data_mean) set to {offset_for_data_mean}")
+    # (Optional) align get_data_mean() offset, though we use get_raw_data_mean()
+    off = hx.get_raw_data_mean(20)
+    if off is not None:
+        hx.set_offset(off)
+        print(f"[HX711] offset (for get_data_mean) set to {off}")
 
-    # Auto zero at start (compute B from measured raw0)
-    _auto_zero()
+    # Auto zero at start
+    if not _auto_zero("start"):
+        # fallback: take whatever we have to avoid None
+        with state_lock:
+            zero_raw = off if off is not None else 0
 
-    # EMA state
     smoothed_raw = None
     last_print = 0.0
 
@@ -139,32 +142,32 @@ def hx711_reader():
         while not stop_event.is_set():
             # Handle re-zero request
             if zero_request.is_set():
-                # small delay to let user remove weight
-                time.sleep(0.5)
-                _auto_zero()
+                time.sleep(0.5)   # give operator time to clear the scale
+                if _auto_zero("re-zero"):
+                    smoothed_raw = None    # reset EMA to avoid bias carryover
                 zero_request.clear()
-                # reset EMA so it doesn't carry old bias
-                smoothed_raw = None
 
             raw = hx.get_raw_data_mean(READ_SAMPLES)
             if raw is not None:
-                # EMA filtering
+                # EMA filter
                 if smoothed_raw is None:
                     smoothed_raw = raw
                 else:
                     smoothed_raw = EMA_ALPHA * raw + (1.0 - EMA_ALPHA) * smoothed_raw
 
-                with cal_lock:
-                    weight = A * smoothed_raw + B
+                with state_lock:
+                    zr = zero_raw
+
+                weight = A * (smoothed_raw - zr)
 
                 now = time.time()
                 if now - last_print >= PRINT_EVERY:
-                    print(f"[HX711] raw={int(raw)}, ema={int(smoothed_raw)}, weight={weight:.2f}")
+                    print(f"[HX711] raw={int(raw)}, ema={int(smoothed_raw)}, zero_raw={int(zr)}, weight={weight:.2f}")
                     last_print = now
             else:
                 print("[HX711] invalid data")
 
-            time.sleep(0.04)  # ~25Hz loop
+            time.sleep(0.04)  # ~25Hz
     except Exception as e:
         print("[HX711] exception:", e)
 
