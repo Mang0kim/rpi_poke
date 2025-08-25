@@ -271,29 +271,45 @@ def seq01_wait():
             return True
 
 def seq02_measure():
-    """02.mp4 두 번 재생. 처음 2s 버리고 평균. 분기 후 (True, '03'|'03-1'|'01')."""
+    """02.mp4 두 번 재생(항상 끝까지). 시작 후 2초는 버리고 나머지 평균.
+       ★새 규칙: 재생 중 어느 시점이든 weight <= 20000g 발생하면,
+       두 번 재생을 모두 마친 뒤 시퀀스 1로 복귀."""
     print("[SEQ] 02(measure) start")
+
     start_time = time.time()
     valid_sum = 0.0
     valid_cnt = 0
+    drop_detected = False  # <= 20000g 하강 감지 플래그
+
     def tick(_t, _is_last):
-        nonlocal valid_sum, valid_cnt
+        nonlocal valid_sum, valid_cnt, drop_detected
+        w = get_weight()
+
+        # 어느 시점이든 20000g 이하로 떨어지면 플래그 기록
+        if w <= TRIGGER_MIN:
+            drop_detected = True
+
+        # 평균은 '시작 후 2초'부터만 포함
         elapsed = time.time() - start_time
-        if elapsed >= 2.0:  # 버퍼 구간 제외
-            valid_sum += get_weight()
+        if elapsed >= 2.0:
+            valid_sum += w
             valid_cnt += 1
 
-    # 두 번 재생
+    # 02.mp4를 두 번 "끝까지" 재생 (중간 중단 없음)
     for rep in range(2):
         ok = _play_once("02.mp4", tick)
-        if not ok: return False, None
+        if not ok:
+            return False, None
 
-    if valid_cnt == 0:
-        avg = 0.0
-    else:
-        avg = valid_sum / valid_cnt
-    print(f"[SEQ] 02 avg={avg:.2f} g (cnt={valid_cnt})")
+    avg = (valid_sum / valid_cnt) if valid_cnt else 0.0
+    print(f"[SEQ] 02 avg={avg:.2f} g (cnt={valid_cnt}), drop_detected={drop_detected}")
 
+    # 새 규칙이 최우선: 한번이라도 20000g 이하로 떨어졌다면 01로 복귀
+    if drop_detected:
+        print("[SEQ] 02 -> 01 (detected weight <= 20kg during seq02)")
+        return True, "01"
+
+    # 기존 분기 로직
     if avg < TRIGGER_MIN:
         print("[SEQ] 02 -> 01 (avg < 20kg)")
         return True, "01"
