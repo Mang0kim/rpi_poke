@@ -256,31 +256,36 @@ def get_weight():
 
 def seq01_wait():
     """01.mp4 반복 재생.
-       측정값이 [TRIGGER_MIN, TRIGGER_MAX) 범위에 '연속해서 2회' 들어오면
+       무게가 [TRIGGER_MIN, TRIGGER_MAX) 범위에 1초 이상 연속 머물면
        그 회차 재생을 끝까지 마친 뒤 시퀀스 02로 진행."""
     print("[SEQ] 01(wait) start")
 
     while not stop_event.is_set():
         triggered = False
-        streak = 0  # 연속 in-range 카운트
+        inrange_start = None  # 범위 안에 들어온 시점 기록
 
         def on_tick(t, is_last):
-            nonlocal triggered, streak
+            nonlocal triggered, inrange_start
             w = get_weight()
-            if TRIGGER_MIN <= w < TRIGGER_MAX:
-                streak += 1
-                if streak == 2 and not triggered:
-                    print(f"[SEQ] 01: in-range streak 2 (w={w:.0f} g)")
-                    triggered = True
+            inrange = (TRIGGER_MIN <= w < TRIGGER_MAX)
+
+            if inrange:
+                if inrange_start is None:
+                    inrange_start = time.time()
+                else:
+                    # 1초 이상 연속 유지되면 trigger
+                    if (time.time() - inrange_start) >= 1.0 and not triggered:
+                        print(f"[SEQ] 01: in-range ≥1s (w≈{w:.0f} g)")
+                        triggered = True
             else:
-                streak = 0  # 연속 끊김
+                inrange_start = None  # 연속 끊김
 
         ok = _play_once("01.mp4", on_tick)
         if not ok:
             return False
 
         if triggered:
-            print("[SEQ] 01 -> 02 (two consecutive in-range samples)")
+            print("[SEQ] 01 -> 02 (sustained in-range ≥1s)")
             return True
 
 def seq02_measure():
