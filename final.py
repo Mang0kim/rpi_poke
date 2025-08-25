@@ -255,19 +255,32 @@ def get_weight():
     return float(cur_weight_g)
 
 def seq01_wait():
-    """01.mp4 반복. 트리거 범위 감지되면 그 '회차' 끝까지 재생 후 True 리턴."""
+    """01.mp4 반복 재생.
+       측정값이 [TRIGGER_MIN, TRIGGER_MAX) 범위로 '두 차례' 진입하면
+       그 회차 재생을 끝까지 마친 뒤 시퀀스 02로 진행."""
     print("[SEQ] 01(wait) start")
-    trigger_armed = False
+    hits = 0
+    inrange_prev = False
+
     while not stop_event.is_set():
         def on_tick(t, is_last):
-            nonlocal trigger_armed
+            nonlocal hits, inrange_prev
             w = get_weight()
-            if (TRIGGER_MIN <= w < TRIGGER_MAX):
-                trigger_armed = True
+            inrange = (TRIGGER_MIN <= w < TRIGGER_MAX)
+
+            # 범위 밖 -> 안으로 '진입'할 때만 1회로 카운트 (연속 머무름은 1회로 유지)
+            if inrange and not inrange_prev:
+                hits += 1
+                print(f"[SEQ] 01: in-range hit #{hits} (w={w:.0f} g)")
+
+            inrange_prev = inrange
+
         ok = _play_once("01.mp4", on_tick)
-        if not ok: return False
-        if trigger_armed:
-            print("[SEQ] 01 -> 02")
+        if not ok:
+            return False
+
+        if hits >= 2:
+            print("[SEQ] 01 -> 02 (two in-range hits)")
             return True
 
 def seq02_measure():
