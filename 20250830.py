@@ -374,4 +374,25 @@ def run_sequences():
         elif branch == "03":
             if not seq03_pause_then_resume("03.mp4"): break
         elif branch == "03-1":
-            if not seq03_pause_then_resume("03-1.mp4"_
+            if not seq03_pause_then_resume("03-1.mp4"): break
+        # 이후 자동으로 01로
+
+# -------------------------------
+# MAIN
+# -------------------------------
+def main():
+    _install_sig_handlers()
+    t = threading.Thread(target=hx711_reader, daemon=True); t.start()
+    try:
+        run_sequences()
+    finally:
+        stop_event.set()
+        if not HEADLESS:
+            try: cv2.destroyAllWindows()
+            except Exception: pass
+        t.join(timeout=2.0)
+        GPIO.cleanup()
+        sys.exit(0)
+
+if __name__ == "__main__":
+    main()
