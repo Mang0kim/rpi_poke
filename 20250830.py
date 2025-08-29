@@ -255,45 +255,81 @@ def get_weight():
     return float(cur_weight_g)
 
 def seq01_wait():
-    """01.mp4 諛섎났. ?몃━嫄?踰붿쐞 媛먯??섎㈃ 洹?'?뚯감' ?앷퉴吏 ?ъ깮 ??True 由ы꽩."""
+    """01.mp4 반복 재생.
+       무게가 [TRIGGER_MIN, TRIGGER_MAX) 범위에 1초 이상 연속 머물면
+       그 회차 재생을 끝까지 마친 뒤 시퀀스 02로 진행."""
     print("[SEQ] 01(wait) start")
-    trigger_armed = False
+
     while not stop_event.is_set():
+        triggered = False
+        inrange_start = None  # 범위 안에 들어온 시점 기록
+
         def on_tick(t, is_last):
-            nonlocal trigger_armed
+            nonlocal triggered, inrange_start
             w = get_weight()
-            if (TRIGGER_MIN <= w < TRIGGER_MAX):
-                trigger_armed = True
+            inrange = (TRIGGER_MIN <= w < TRIGGER_MAX)
+
+            if inrange:
+                if inrange_start is None:
+                    inrange_start = time.time()
+                else:
+                    # 1초 이상 연속 유지되면 trigger
+                    if (time.time() - inrange_start) >= 1.0 and not triggered:
+                        print(f"[SEQ] 01: in-range ≥1s (w≈{w:.0f} g)")
+                        triggered = True
+            else:
+                inrange_start = None  # 연속 끊김
+
         ok = _play_once("01.mp4", on_tick)
-        if not ok: return False
-        if trigger_armed:
-            print("[SEQ] 01 -> 02")
+        if not ok:
+            return False
+
+        if triggered:
+            print("[SEQ] 01 -> 02 (sustained in-range ≥1s)")
             return True
 
+
 def seq02_measure():
-    """02.mp4 ??踰??ъ깮. 泥섏쓬 2s 踰꾨━怨??됯퇏. 遺꾧린 ??(True, '03'|'03-1'|'01')."""
+    """02.mp4 두 번 재생(항상 끝까지).
+       시작 후 2초 이후의 측정값으로 평균을 갱신.
+       ★새 규칙: 재생 중 측정값이 '지금까지의 평균의 50% 이하'로 떨어지면
+       두 번 재생 끝난 후 무조건 시퀀스1로 복귀."""
     print("[SEQ] 02(measure) start")
+
     start_time = time.time()
     valid_sum = 0.0
     valid_cnt = 0
-    def tick(_t, _is_last):
-        nonlocal valid_sum, valid_cnt
-        elapsed = time.time() - start_time
-        if elapsed >= 2.0:  # 踰꾪띁 援ш컙 ?쒖쇅
-            valid_sum += get_weight()
-            valid_cnt += 1
+    drop_detected = False
 
-    # ??踰??ъ깮
+    def tick(_t, _is_last):
+        nonlocal valid_sum, valid_cnt, drop_detected
+        w = get_weight()
+        elapsed = time.time() - start_time
+
+        if elapsed >= 2.0:  # 초기 2초는 버림
+            valid_sum += w
+            valid_cnt += 1
+            running_avg = valid_sum / valid_cnt if valid_cnt > 0 else w
+
+            # 현재값이 누적 평균의 50% 이하이면 플래그
+            if w <= running_avg * 0.5:
+                drop_detected = True
+
+    # 02.mp4 두 번 끝까지 재생
     for rep in range(2):
         ok = _play_once("02.mp4", tick)
-        if not ok: return False, None
+        if not ok:
+            return False, None
 
-    if valid_cnt == 0:
-        avg = 0.0
-    else:
-        avg = valid_sum / valid_cnt
-    print(f"[SEQ] 02 avg={avg:.2f} g (cnt={valid_cnt})")
+    avg = (valid_sum / valid_cnt) if valid_cnt else 0.0
+    print(f"[SEQ] 02 avg={avg:.2f} g (cnt={valid_cnt}), drop_detected={drop_detected}")
 
+    # 새 규칙 최우선
+    if drop_detected:
+        print("[SEQ] 02 -> 01 (detected drop <= 50% of running avg)")
+        return True, "01"
+
+    # 기존 분기
     if avg < TRIGGER_MIN:
         print("[SEQ] 02 -> 01 (avg < 20kg)")
         return True, "01"
@@ -303,6 +339,7 @@ def seq02_measure():
     else:
         print("[SEQ] 02 -> 03-1 (avg >= 65kg)")
         return True, "03-1"
+
 
 def seq03_pause_then_resume(video_name):
     """
