@@ -90,15 +90,19 @@ def _read_ready_mean(target_count=READ_SAMPLES, timeout_s=0.25):
     total, cnt = 0, 0
     deadline = time.time() + timeout_s
     while cnt < target_count and time.time() < deadline and not stop_event.is_set():
+        # 준비됐을 때만 읽기
         if hasattr(hx, "is_ready") and not hx.is_ready():
             time.sleep(0.001)
             continue
-        v = hx.get_raw_data()
+
+        v = hx.get_raw_data_mean(1)  # 1샘플만 읽기
         if v is None or v in (-1, 0):
             time.sleep(0.001)
             continue
+
         total += int(v)
         cnt += 1
+
     return int(round(total / cnt)) if cnt > 0 else None
 
 # -------------------------------
