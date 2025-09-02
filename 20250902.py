@@ -10,6 +10,7 @@ HX711 + OpenCV Sequencer
 import cv2, time, threading, signal, sys
 from hx711 import HX711
 import RPi.GPIO as GPIO
+GPIO.setwarnings(False)
 
 # --- Guard statistics.stdev globally (prevents "two data points" crash) ---
 import statistics as _stats
