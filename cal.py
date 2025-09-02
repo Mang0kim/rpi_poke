@@ -1,64 +1,52 @@
 #!/usr/bin/env python3
-# hx711_calibrate_endail.py
-# endail/hx711 Python 바인딩용: ref_unit/offset 보정값을 JSON에 저장
+# multi_point_calibrate.py
+# 0kg / 1.75kg / 70kg 세 점으로 캘리브레이션
 
-import json, time
-from HX711 import *   # SimpleHX711, Mass
+import time, json, statistics as stats
+from HX711 import *   # endail/hx711 Python 바인딩
+
+CALIB_PATH = "hx711_calibration.json"
 
 DATA_PIN = 5
 CLK_PIN  = 6
-CALIB_PATH = "hx711_calibration.json"
 
-def read_weight_num(hx, samples=35, repeats=5, delay=0.05):
+def mean_raw(hx, samples=35, repeats=10, delay=0.05):
     vals = []
     for _ in range(repeats):
-        w = hx.weight(samples)   # 숫자(float)여야 함
-        try:
-            w = float(w)         # 혹시 객체면 float 캐스팅
-        except Exception:
-            w = getattr(w, "value", w)  # 마지막 안전장치
-        vals.append(w)
+        v = hx.rawDataMean(samples)   # SimpleHX711는 raw 리턴 메서드도 제공
+        vals.append(int(v))
         time.sleep(delay)
-    return sum(vals) / len(vals)
+    return stats.mean(vals)
 
 def main():
-    # ref_unit/offset은 임시값으로 시작해도 됨 (예: 1, 0)
     with SimpleHX711(DATA_PIN, CLK_PIN, 1, 0) as hx:
         hx.setUnit(Mass.Unit.KG)
 
-        print("Step 1: Remove all weight.")
-        input("Press Enter when ready...")
-        hx.zero()                        # 내부 offset 갱신
-        offset = hx.getOffset()          # 보정에 쓸 offset 기록
-        print("Offset =", offset)
+        ref_points = []
+        for known_mass in [0.0, 1.75, 70.0]:
+            print(f"Place {known_mass} kg weight.")
+            input("Press Enter when ready...")
+            raw_val = mean_raw(hx)
+            print(f"Raw at {known_mass} kg = {raw_val}")
+            ref_points.append((raw_val, known_mass))
 
-        print("Step 2: Place known weight (e.g. 1.000 kg).")
-        input("Press Enter when ready...")
+        # 최소자승법 (2점 이상 → 직선 피팅)
+        xs, ys = zip(*ref_points)
+        n = len(xs)
+        x_mean, y_mean = stats.mean(xs), stats.mean(ys)
+        a = sum((x - x_mean)*(y - y_mean) for x, y in ref_points) / sum((x - x_mean)**2 for x in xs)
+        b = y_mean - a * x_mean
 
-        measured = read_weight_num(hx, samples=35, repeats=6)
-        print(f"Measured (with current ref_unit) = {measured:.6f} kg")
+        # 관계: kg ≈ a*raw + b
+        # scale = 1/a, offset = -b/a
+        scale = 1.0 / a
+        offset = -b / a
 
-        # 현재 ref_unit을 가져와서, 비례식으로 보정
-        cur_ref = hx.getReferenceUnit()
-        # weight ≈ (raw - offset) / ref_unit 이라 가정 → 출력은 ref_unit에 반비례
-        # 원하는 출력 known_mass에 맞추려면: new_ref = cur_ref * (measured / known)
-        known_mass = float(input("Enter known mass in kg (e.g. 1.0): ").strip() or "1.0")
-        if known_mass <= 0:
-            raise ValueError("Known mass must be positive.")
-
-        new_ref = cur_ref * (measured / known_mass)
-        hx.setReferenceUnit(new_ref)
-
-        # 확인 읽기
-        verified = read_weight_num(hx, samples=35, repeats=6)
-        print(f"After setReferenceUnit({new_ref:.6f}), verify = {verified:.6f} kg")
-
-        # 저장
         cfg = {"data_pin": DATA_PIN, "clk_pin": CLK_PIN,
-               "offset": offset, "ref_unit": new_ref}
+               "offset": offset, "ref_unit": scale}
         with open(CALIB_PATH, "w") as f:
             json.dump(cfg, f, indent=2)
-        print("Saved calibration:", cfg)
+        print("Calibration saved:", cfg)
 
 if __name__ == "__main__":
     main()
