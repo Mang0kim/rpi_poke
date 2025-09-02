@@ -306,29 +306,32 @@ def main():
                         # print(f"[SEQ2] holding {seq2_bin:02d}: {held:.1f}/{SEQ2_STABLE_SEC}s")
                     time.sleep(0.05)
 
-            # ------------- SEQ3: 결과 (txt/XX, 전체 재생 후 1.5초 프레임 freeze) -------------
-            while state == 3:
-                stem = f"ScaleCustom_txt_{result_bin:02d}"
-                path = get_video_path(stem, subdir="txt")
-                print(f"[SEQ3] enter: result -> {stem}, play full then freeze@{SEQ3_FREEZE_SEC}s")
+           # ------------- SEQ3: 결과 (txt/XX, 1.5s에서 pause -> <1kg 후 나머지 재생) -------------
+           while state == 3:
+               stem = f"ScaleCustom_txt_{result_bin:02d}"
+               path = get_video_path(stem, subdir="txt")
+               print(f"[SEQ3] enter: result -> {stem}, freeze at {SEQ3_FREEZE_SEC}s")
 
-                # 1) 파일 전체 재생 (끝까지)
-                mpv.loadfile(path, pause=False, loop_file=False)
-                mpv.wait_until_eof()
-                print("[SEQ3] video reached end.")
+               # 1) 영상 로드 후 0부터 재생 시작
+               mpv.loadfile(path, pause=False, loop_file=False)
 
-                # 2) 1.5초 지점으로 이동 후 pause (freeze)
-                mpv.command("seek", str(SEQ3_FREEZE_SEC), "absolute")
-                mpv.set("pause", "yes")
-                print("[SEQ3] paused at 1.5s frame. Holding while >=1kg...")
+               # 2) 1.5초 지점 도달 시 pause
+               mpv.freeze_at(SEQ3_FREEZE_SEC)
+               print(f"[SEQ3] paused at {SEQ3_FREEZE_SEC}s. Holding while >=1kg...")
 
-                # 3) 하중 유지되면 그대로 정지 유지, 1kg 미만이면 SEQ1로
-                while effective_weight() >= THRESH_KG:
-                    time.sleep(0.1)
+               # 3) 무게가 <1kg 될 때까지 정지 유지
+               while effective_weight() >= THRESH_KG:
+                   time.sleep(0.1)
 
-                print("[SEQ3] dropped <1kg -> SEQ1")
-                state = 1
-                break
+               print("[SEQ3] weight <1kg detected. Resume playback to end.")
+
+               # 4) pause 해제하고 끝까지 재생
+               mpv.set("pause", "no")
+               mpv.wait_until_eof()
+               print("[SEQ3] video finished. -> SEQ1")
+
+               state = 1
+               break
 
 
     except KeyboardInterrupt:
