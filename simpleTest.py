@@ -20,7 +20,7 @@ def restart_program():
 try:
     while True:
         try:
-            val = hx.get_raw_data_mean(readings=4)
+            val = hx.get_raw_data_mean(readings=1)
             if val is not False:
                 print(val)
             else:
