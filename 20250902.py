@@ -23,6 +23,28 @@ def _safe_stdev(vals):
 
 _stats.stdev = _safe_stdev
 
+# --- Read only when ready; drop invalid samples; average outside the lib filter ---
+def _read_ready_mean(target_count, timeout_s=0.35):
+    """
+    HX711 is_ready()일 때만 1샘플씩 읽어 평균.
+    -1/0/None 같은 실패 샘플은 버림.
+    target_count개 모으거나 timeout 지나면 종료.
+    """
+    total, cnt = 0, 0
+    deadline = time.time() + timeout_s
+    while cnt < target_count and time.time() < deadline and not stop_event.is_set():
+        if hasattr(hx, "is_ready") and not hx.is_ready():
+            time.sleep(0.001); continue
+
+        # 라이브러리 필터 경유를 피하려고 "한 번에 1개"만 요청
+        v = hx.get_raw_data_mean(1)
+        if v in (None, 0, -1):
+            time.sleep(0.001); continue
+
+        total += int(v); cnt += 1
+
+    return int(round(total / cnt)) if cnt > 0 else None
+
 
 # --- Running mean / stdev (Welford) ---
 class RunningStats:
@@ -219,7 +241,7 @@ def _play_pause_at(path: str, pause_time: float, until_cond):
 def hx711_reader():
     global zero_raw, cur_weight_g, curA, A
     hx.reset()
-    off = hx.get_raw_data_mean(20)
+    off = _read_ready_mean(20)
     if off is not None:
         hx.set_offset(off)
         print(f"[HX711] offset (for get_data_mean) set to {off}")
@@ -239,7 +261,7 @@ def hx711_reader():
                     smoothed_raw = None; zero_win_start = None
                 zero_request.clear()
 
-            raw = hx.get_raw_data_mean(READ_SAMPLES)
+            raw = _read_ready_mean(READ_SAMPLES)
             if raw is not None:
                 # adaptive EMA
                 if smoothed_raw is None:
