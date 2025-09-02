@@ -24,7 +24,7 @@ def _safe_stdev(vals):
 _stats.stdev = _safe_stdev
 
 # --- Read only when ready; drop invalid samples; average outside the lib filter ---
-def _read_ready_mean(target_count, timeout_s=0.35):
+def _read_ready_mean(target_count, timeout_s=0.4):
     """
     HX711 is_ready()일 때만 1샘플씩 읽어 평균.
     -1/0/None 같은 실패 샘플은 버림.
