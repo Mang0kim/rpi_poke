@@ -16,11 +16,12 @@ HOLD_TO_MEASURE_READY = 1.5   # seq1 -> seq2 (≥1kg 1.5s 유지)
 HOLD_STABLE_BIN       = 3.0   # seq2 안정 판정 (3초 같은 kg bin)
 FREEZE_AT_SEC         = 1.5   # seq3 freeze 시점
 SAMPLES = 10                  # hx.weight(10) ≈ 1초
+SPEED_SCALE = 1.0             # 항상 1.0배속 재생
+# ---------------------------------------------
 
 # 전역
 weight_kg = 0.0
 running = True
-# ---------------------------------------------
 
 def load_calib():
     with open(CALIB_PATH, "r") as f:
@@ -61,7 +62,7 @@ def _play_video(path, until_frame=None, freeze=False, hold_cond=None, back_cond=
     if cap is None: return False
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    delay = 1.0 / fps
+    delay = (1.0 / fps) / SPEED_SCALE
     t_next = time.perf_counter()
     frame_idx = -1
     last = None
@@ -136,7 +137,7 @@ def main():
                     if seq1_hold_start is None:
                         seq1_hold_start = time.time()
                     elif time.time() - seq1_hold_start >= HOLD_TO_MEASURE_READY:
-                        esc = _play_video(os.path.join(VID_DIR,"01.mp4"))
+                        esc = _play_video(os.path.join(VID_DIR,"01_fix.mp4"))
                         if esc: raise KeyboardInterrupt
                         state = 2
                         seq1_hold_start = None
@@ -145,7 +146,7 @@ def main():
                         break
                 else:
                     seq1_hold_start = None
-                esc = _play_video(os.path.join(VID_DIR,"01.mp4"))
+                esc = _play_video(os.path.join(VID_DIR,"01_fix.mp4"))
                 if esc: raise KeyboardInterrupt
 
             # --- SEQ2 ---
@@ -154,7 +155,7 @@ def main():
                 now = time.time()
 
                 if weight_kg < THRESH_KG:
-                    esc = _play_video(os.path.join(VID_DIR,"02.mp4"))
+                    esc = _play_video(os.path.join(VID_DIR,"02_fix.mp4"))
                     if esc: raise KeyboardInterrupt
                     state = 1
                     break
@@ -164,18 +165,18 @@ def main():
                 elif seq2_bin is None or current_bin != seq2_bin:
                     seq2_bin = current_bin; seq2_bin_start=now
                 elif now - seq2_bin_start >= HOLD_STABLE_BIN:
-                    esc = _play_video(os.path.join(VID_DIR,"02.mp4"))
+                    esc = _play_video(os.path.join(VID_DIR,"02_fix.mp4"))
                     if esc: raise KeyboardInterrupt
                     result_bin = seq2_bin
                     state = 3
                     break
 
-                esc = _play_video(os.path.join(VID_DIR,"02.mp4"))
+                esc = _play_video(os.path.join(VID_DIR,"02_fix.mp4"))
                 if esc: raise KeyboardInterrupt
 
             # --- SEQ3 ---
             while state == 3:
-                filename = f"ScaleCustom_txt_{result_bin:02d}.mp4"
+                filename = f"ScaleCustom_txt_{result_bin:02d}_fix.mp4"
                 path = os.path.join(VID_DIR,"txt",filename)
                 cap = _open_cap(path)
                 if cap is None: state=1; break
