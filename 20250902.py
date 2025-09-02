@@ -24,7 +24,7 @@ def _safe_stdev(vals):
 _stats.stdev = _safe_stdev
 
 # --- Read only when ready; drop invalid samples; average outside the lib filter ---
-def _read_ready_mean(target_count, timeout_s=0.4):
+def _read_ready_mean(target_count, timeout_s=0.5):
     """
     HX711 is_ready()일 때만 1샘플씩 읽어 평균.
     -1/0/None 같은 실패 샘플은 버림.
@@ -39,7 +39,10 @@ def _read_ready_mean(target_count, timeout_s=0.4):
         # 라이브러리 필터 경유를 피하려고 "한 번에 1개"만 요청
         v = hx.get_raw_data_mean(1)
         if v in (None, 0, -1):
-            time.sleep(0.001); continue
+            time.sleep(0.001)
+            continue
+        if abs(v) > 5000000:   # 비정상 스파이크 버림
+            continue
 
         total += int(v); cnt += 1
 
@@ -99,7 +102,7 @@ EMA_ALPHA_SLOW = 0.18
 EMA_ALPHA_FAST = 0.60
 DELTA_RAW_FAST = 500
 PRINT_EVERY    = 0.5
-LOOP_SLEEP     = 0.12
+LOOP_SLEEP     = 0.2
 
 # Zero-Lock
 ZERO_LOCK_THRESHOLD = 5.0  # g
