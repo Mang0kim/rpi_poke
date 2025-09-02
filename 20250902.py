@@ -11,6 +11,35 @@ import cv2, time, threading, signal, sys
 from hx711 import HX711
 import RPi.GPIO as GPIO
 
+# --- Running mean / stdev (Welford) ---
+class RunningStats:
+    def __init__(self):
+        self.n = 0
+        self.mean = 0.0
+        self.M2 = 0.0  # sum of squares of differences from the current mean
+
+    def push(self, x: float):
+        self.n += 1
+        delta = x - self.mean
+        self.mean += delta / self.n
+        self.M2 += delta * (x - self.mean)
+
+    @property
+    def count(self) -> int:
+        return self.n
+
+    @property
+    def avg(self) -> float:
+        return self.mean if self.n > 0 else 0.0
+
+    @property
+    def stdev(self) -> float:
+        # 표본 표준편차 (샘플 2개 미만이면 0.0 반환 → 예외 없음)
+        if self.n >= 2:
+            return (self.M2 / (self.n - 1)) ** 0.5
+        return 0.0
+
+
 # -------------------------------
 # HX711 / GPIO
 # -------------------------------
@@ -72,13 +101,13 @@ def _auto_zero(tag="start") -> bool:
     global zero_raw
     raw0 = _measure_zero_raw()
     if raw0 is None:
-    print(f"[CAL] {tag}: zero measurement failed, keeping last zero_raw={zero_raw}")
-    return False
-  
+        print(f"[CAL] {tag}: zero measurement failed, keeping last zero_raw={zero_raw}")
+        return False
     with state_lock:
         zero_raw = raw0
     print(f"[CAL] {tag}: zero_raw set to {raw0}")
     return True
+
 
 # ------------- Video helpers -------------
 def _fps_delay_ms(cap) -> int:
@@ -272,37 +301,55 @@ def seq01_wait():
             return True
 
 def seq02_measure():
-    """02.mp4 두 번 재생. 처음 2s 버리고 평균. 분기 후 (True, '03'|'03-1'|'01')."""
+    """02.mp4 두 번 재생(항상 끝까지).
+       시작 후 2초는 버리고, 이후 측정으로 러닝 평균/표준편차 계산.
+       drop 규칙: 현재값 <= 러닝평균의 50% 이하면 플래그.
+       두 번 재생을 모두 마친 뒤 drop_detected면 01로 복귀."""
     print("[SEQ] 02(measure) start")
+
     start_time = time.time()
-    valid_sum = 0.0
-    valid_cnt = 0
+    stats = RunningStats()    # ← 러닝 통계 시작
+    drop_detected = False
+
     def tick(_t, _is_last):
-        nonlocal valid_sum, valid_cnt
+        nonlocal drop_detected, stats
+        w = get_weight()
         elapsed = time.time() - start_time
-        if elapsed >= 2.0:  # 버퍼 구간 제외
-            valid_sum += get_weight()
-            valid_cnt += 1
 
-    # 두 번 재생
-    for rep in range(2):
+        # 초기 2초 버림
+        if elapsed >= 2.0:
+            # 러닝 평균/표준편차 업데이트 (예외 없는 안전 계산)
+            stats.push(w)
+
+            # 현재값이 러닝 평균의 50% 이하이면 드롭 감지
+            if stats.count >= 2 and w <= stats.avg * 0.5:
+                drop_detected = True
+
+    # 02.mp4 두 번 끝까지 재생
+    for _ in range(2):
         ok = _play_once("02.mp4", tick)
-        if not ok: return False, None
+        if not ok:
+            return False, None
 
-    if valid_cnt == 0:
-        avg = 0.0
-    else:
-        avg = valid_sum / valid_cnt
-    print(f"[SEQ] 02 avg={avg:.2f} g (cnt={valid_cnt})")
+    avg = stats.avg
+    sd  = stats.stdev  # 필요한 경우 로그/판정에 사용 가능
 
+    print(f"[SEQ] 02 avg={avg:.2f} g, stdev={sd:.2f} g (cnt={stats.count}), drop_detected={drop_detected}")
+
+    # 새 규칙 최우선
+    if drop_detected:
+        print("[SEQ] 02 -> 01 (detected current <= 50% of running avg)")
+        return True, "01"
+
+    # 기존 분기
     if avg < TRIGGER_MIN:
-        print("[SEQ] 02 -> 01 (avg < 20kg)")
+        print("[SEQ] 02 -> 01 (avg < trigger min)")
         return True, "01"
     elif avg < BRANCH_SPLIT:
-        print("[SEQ] 02 -> 03 (avg < 65kg)")
+        print("[SEQ] 02 -> 03 (avg < split)")
         return True, "03"
     else:
-        print("[SEQ] 02 -> 03-1 (avg >= 65kg)")
+        print("[SEQ] 02 -> 03-1 (avg >= split)")
         return True, "03-1"
 
 def seq03_pause_then_resume(video_name):
