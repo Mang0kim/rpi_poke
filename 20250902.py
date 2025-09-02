@@ -25,21 +25,21 @@ HEADLESS      = False
 SPEED_SCALE   = 1.0
 
 # Calibration slope (press 'C' to recalibrate with known mass)
-A = 0.0355646605
+A = 0.03716
 CAL_MASS_G = 69200.0
 
 # Sampling / smoothing
 ZERO_SAMPLES  = 60
-READ_SAMPLES  = 12
-EMA_ALPHA_SLOW = 0.12
-EMA_ALPHA_FAST = 0.50
-DELTA_RAW_FAST = 400
-PRINT_EVERY    = 0.2
-LOOP_SLEEP     = 0.04
+READ_SAMPLES  = 8
+EMA_ALPHA_SLOW = 0.18
+EMA_ALPHA_FAST = 0.60
+DELTA_RAW_FAST = 250
+PRINT_EVERY    = 0.5
+LOOP_SLEEP     = 0.08
 
 # Zero-Lock
 ZERO_LOCK_THRESHOLD = 5.0  # g
-ZERO_LOCK_MIN_TIME  = 0.4  # s
+ZERO_LOCK_MIN_TIME  = 0.3  # s
 
 # Sequence thresholds
 TRIGGER_MIN  = 20000.0      # >=
