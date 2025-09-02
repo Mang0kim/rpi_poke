@@ -10,7 +10,7 @@ MODEL_PATH = os.path.join(BASE_DIR, "hx711_model.json")
 
 THRESH_KG = 1.0
 SEQ1_HOLD_SEC   = 1.5    # Seq1 -> Seq2: eff ≥ 1kg 1.5s 유지
-SEQ2_STABLE_SEC = 3.0    # Seq2: round(kg) 3s 동일
+SEQ2_STABLE_SEC = 2.5    # Seq2: round(kg) 3s 동일
 SEQ3_FREEZE_SEC = 1.5    # Seq3: 1.5s 프레임에서 일시정지
 SAMPLES = 10             # hx.weight(10) = 약 1s @ 10SPS
 WARMUP_SEC = 5.0         # 초기 예열 시간 (영상 재생 없이)
@@ -356,7 +356,7 @@ def main():
                             break
                     time.sleep(0.05)
 
-            # -------- SEQ3: 결과 (1.5s에서 pause -> <1kg 시 나머지 재생) --------
+            # -------- SEQ3: 결과 (1.5s에서 pause -> 80% 이상 하중 감소 시 재생 재개) --------
             while state == 3:
                 stem = f"ScaleCustom_txt_{result_bin:02d}"
                 path = get_video_path(stem, subdir="txt")
@@ -365,19 +365,29 @@ def main():
                 # 0부터 재생 시작 → 1.5s에서 일시정지
                 mpv.loadfile(path, pause=False, loop_file=False)
                 mpv.freeze_at(SEQ3_FREEZE_SEC)
-                print(f"[SEQ3] paused at {SEQ3_FREEZE_SEC}s. Holding while >=1kg...")
 
-                # <1kg 될 때까지 정지 유지
-                while effective_weight() >= THRESH_KG:
+                # freeze 직후 기준 하중 저장
+                eff_at_freeze = effective_weight()
+                resume_threshold = max(0.0, eff_at_freeze * 0.2)  # 80% 이상 감소 → 20% 이하
+                print(f"[SEQ3] paused at {SEQ3_FREEZE_SEC}s. eff_at_freeze={eff_at_freeze:.3f}kg, "
+                      f"resume_threshold={resume_threshold:.3f}kg")
+
+                # 일시정지 유지: eff가 기준의 20% 이하가 될 때까지
+                while True:
+                    eff_now = effective_weight()
+                    if eff_now <= resume_threshold:
+                        print(f"[SEQ3] drop >=80% detected (eff_now={eff_now:.3f}kg). Resume to end.")
+                        break
                     time.sleep(0.1)
 
-                print("[SEQ3] weight <1kg detected. Resume to end.")
+                # pause 해제하고 끝까지 재생
                 mpv.set("pause", "no")
                 mpv.wait_until_eof()
                 print("[SEQ3] video finished. -> SEQ1")
 
                 state = 1
                 break
+
 
     except KeyboardInterrupt:
         print("[SYS] KeyboardInterrupt")
