@@ -11,6 +11,19 @@ import cv2, time, threading, signal, sys
 from hx711 import HX711
 import RPi.GPIO as GPIO
 
+# --- Guard statistics.stdev globally (prevents "two data points" crash) ---
+import statistics as _stats
+
+_orig_stdev = _stats.stdev
+def _safe_stdev(vals):
+    vals = list(vals)
+    if len(vals) >= 2:
+        return _orig_stdev(vals)   # 표본 표준편차
+    return 0.0                     # 표본이 0~1개면 0.0으로 처리
+
+_stats.stdev = _safe_stdev
+
+
 # --- Running mean / stdev (Welford) ---
 class RunningStats:
     def __init__(self):
