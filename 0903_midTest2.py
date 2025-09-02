@@ -307,32 +307,31 @@ def main():
                     time.sleep(0.05)
 
            # ------------- SEQ3: 결과 (txt/XX, 1.5s에서 pause -> <1kg 후 나머지 재생) -------------
-           while state == 3:
-               stem = f"ScaleCustom_txt_{result_bin:02d}"
-               path = get_video_path(stem, subdir="txt")
-               print(f"[SEQ3] enter: result -> {stem}, freeze at {SEQ3_FREEZE_SEC}s")
+            while state == 3:
+                stem = f"ScaleCustom_txt_{result_bin:02d}"
+                path = get_video_path(stem, subdir="txt")
+                print(f"[SEQ3] enter: result -> {stem}, freeze at {SEQ3_FREEZE_SEC}s")
 
-               # 1) 영상 로드 후 0부터 재생 시작
-               mpv.loadfile(path, pause=False, loop_file=False)
+                # 1) 영상 로드 후 0부터 재생 시작
+                mpv.loadfile(path, pause=False, loop_file=False)
 
-               # 2) 1.5초 지점 도달 시 pause
-               mpv.freeze_at(SEQ3_FREEZE_SEC)
-               print(f"[SEQ3] paused at {SEQ3_FREEZE_SEC}s. Holding while >=1kg...")
+                # 2) 1.5초 지점 도달 시 pause
+                mpv.freeze_at(SEQ3_FREEZE_SEC)
+                print(f"[SEQ3] paused at {SEQ3_FREEZE_SEC}s. Holding while >=1kg...")
 
-               # 3) 무게가 <1kg 될 때까지 정지 유지
-               while effective_weight() >= THRESH_KG:
-                   time.sleep(0.1)
+                # 3) 무게가 <1kg 될 때까지 정지 유지
+                while effective_weight() >= THRESH_KG:
+                    time.sleep(0.1)
 
-               print("[SEQ3] weight <1kg detected. Resume playback to end.")
+                print("[SEQ3] weight <1kg detected. Resume playback to end.")
 
-               # 4) pause 해제하고 끝까지 재생
-               mpv.set("pause", "no")
-               mpv.wait_until_eof()
-               print("[SEQ3] video finished. -> SEQ1")
+                # 4) pause 해제하고 끝까지 재생
+                mpv.set("pause", "no")
+                mpv.wait_until_eof()
+                print("[SEQ3] video finished. -> SEQ1")
 
-               state = 1
-               break
-
+                state = 1
+                break
 
     except KeyboardInterrupt:
         print("[SYS] KeyboardInterrupt")
