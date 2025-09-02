@@ -29,11 +29,11 @@ A = 0.03716
 CAL_MASS_G = 69200.0
 
 # Sampling / smoothing
-ZERO_SAMPLES  = 60
-READ_SAMPLES  = 8
+ZERO_SAMPLES  = 20
+READ_SAMPLES  = 5
 EMA_ALPHA_SLOW = 0.18
 EMA_ALPHA_FAST = 0.60
-DELTA_RAW_FAST = 250
+DELTA_RAW_FAST = 500
 PRINT_EVERY    = 0.5
 LOOP_SLEEP     = 0.12
 
@@ -42,10 +42,10 @@ ZERO_LOCK_THRESHOLD = 5.0  # g
 ZERO_LOCK_MIN_TIME  = 0.3  # s
 
 # Sequence thresholds
-TRIGGER_MIN  = 20000.0      # >=
-TRIGGER_MAX  = 120000.0     # <
+TRIGGER_MIN  = 1000.0      # >=
+TRIGGER_MAX  = 100000.0     # <
 BRANCH_SPLIT = 65000.0      # seq02 avg split
-PAUSE_UNDER  = 20000.0      # < for 2 seconds
+PAUSE_UNDER  = 1000.0      # < for 2 seconds
 PAUSE_HOLD_S = 2.0
 
 # -------------------------------
