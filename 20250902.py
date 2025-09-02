@@ -12,6 +12,37 @@ from hx711 import HX711
 import RPi.GPIO as GPIO
 GPIO.setwarnings(False)
 
+# -------------------------------
+# USER SETTINGS
+# -------------------------------
+WINDOW_NAME   = "Player"
+HEADLESS      = False
+SPEED_SCALE   = 1.0
+
+# Calibration slope (press 'C' to recalibrate with known mass)
+A = 0.03883
+CAL_MASS_G = 69200.0
+
+# Sampling / smoothing
+ZERO_SAMPLES  = 20
+READ_SAMPLES  = 12
+EMA_ALPHA_SLOW = 0.15
+EMA_ALPHA_FAST = 0.75
+DELTA_RAW_FAST = 800
+PRINT_EVERY    = 0.5
+LOOP_SLEEP     = 0.2
+
+# Zero-Lock
+ZERO_LOCK_THRESHOLD = 5.0  # g
+ZERO_LOCK_MIN_TIME  = 0.7  # s
+
+# Sequence thresholds
+TRIGGER_MIN  = 1000.0      # >=
+TRIGGER_MAX  = 100000.0     # <
+BRANCH_SPLIT = 65000.0      # seq02 avg split
+PAUSE_UNDER  = 1000.0      # < for 2 seconds
+PAUSE_HOLD_S = 2.0
+
 # --- Guard statistics.stdev globally (prevents "two data points" crash) ---
 import statistics as _stats
 
@@ -84,37 +115,6 @@ class RunningStats:
 # -------------------------------
 GPIO.setmode(GPIO.BCM)
 hx = HX711(dout_pin=5, pd_sck_pin=6)  # DOUT=5, SCK=6
-
-# -------------------------------
-# USER SETTINGS
-# -------------------------------
-WINDOW_NAME   = "Player"
-HEADLESS      = False
-SPEED_SCALE   = 1.0
-
-# Calibration slope (press 'C' to recalibrate with known mass)
-A = 0.03883
-CAL_MASS_G = 69200.0
-
-# Sampling / smoothing
-ZERO_SAMPLES  = 20
-READ_SAMPLES  = 10
-EMA_ALPHA_SLOW = 0.15
-EMA_ALPHA_FAST = 0.50
-DELTA_RAW_FAST = 800
-PRINT_EVERY    = 0.5
-LOOP_SLEEP     = 0.2
-
-# Zero-Lock
-ZERO_LOCK_THRESHOLD = 5.0  # g
-ZERO_LOCK_MIN_TIME  = 0.7  # s
-
-# Sequence thresholds
-TRIGGER_MIN  = 1000.0      # >=
-TRIGGER_MAX  = 100000.0     # <
-BRANCH_SPLIT = 65000.0      # seq02 avg split
-PAUSE_UNDER  = 1000.0      # < for 2 seconds
-PAUSE_HOLD_S = 2.0
 
 # -------------------------------
 # Shared state / events
