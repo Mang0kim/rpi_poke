@@ -306,24 +306,30 @@ def main():
                         # print(f"[SEQ2] holding {seq2_bin:02d}: {held:.1f}/{SEQ2_STABLE_SEC}s")
                     time.sleep(0.05)
 
-            # ------------- SEQ3: 결과 (txt/XX, 1.5초에서 freeze) -------------
+            # ------------- SEQ3: 결과 (txt/XX, 전체 재생 후 1.5초 프레임 freeze) -------------
             while state == 3:
                 stem = f"ScaleCustom_txt_{result_bin:02d}"
                 path = get_video_path(stem, subdir="txt")
-                print(f"[SEQ3] enter: result -> {stem}, freeze@{SEQ3_FREEZE_SEC}s")
+                print(f"[SEQ3] enter: result -> {stem}, play full then freeze@{SEQ3_FREEZE_SEC}s")
 
-                # 파일 로드 후 1.5초까지 재생(창 유지) → pause
+                # 1) 파일 전체 재생 (끝까지)
                 mpv.loadfile(path, pause=False, loop_file=False)
-                mpv.freeze_at(SEQ3_FREEZE_SEC)
+                mpv.wait_until_eof()
+                print("[SEQ3] video reached end.")
+
+                # 2) 1.5초 지점으로 이동 후 pause (freeze)
+                mpv.command("seek", str(SEQ3_FREEZE_SEC), "absolute")
+                mpv.set("pause", "yes")
                 print("[SEQ3] paused at 1.5s frame. Holding while >=1kg...")
 
-                # 하중 유지되면 그대로 정지 유지, 1kg 미만이면 SEQ1로
+                # 3) 하중 유지되면 그대로 정지 유지, 1kg 미만이면 SEQ1로
                 while effective_weight() >= THRESH_KG:
                     time.sleep(0.1)
 
                 print("[SEQ3] dropped <1kg -> SEQ1")
                 state = 1
                 break
+
 
     except KeyboardInterrupt:
         print("[SYS] KeyboardInterrupt")
