@@ -10,7 +10,8 @@ import cv2
 from HX711 import *
 
 CALIB_PATH = "hx711_calibration.json"
-VID_DIR    = "/vid"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+VID_DIR  = os.path.join(BASE_DIR, "vid")
 WINDOW     = "SmartScale"
 ESC_KEY    = 27
 
