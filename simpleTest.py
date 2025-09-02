@@ -1,34 +1,16 @@
-#!/usr/bin/env python3
-import time, os, sys
-import RPi.GPIO as GPIO
-from hx711 import HX711
+from HX711 import *
 
-DOUT_PIN = 5   # HX711 DT
-SCK_PIN  = 6   # HX711 SCK
+# create a SimpleHX711 object using GPIO pin 2 as the data pin,
+# GPIO pin 3 as the clock pin, -370 as the reference unit, and
+# -367471 as the offset
+with SimpleHX711(2, 3, -370, -367471) as hx:
 
-GPIO.setwarnings(False)
-GPIO.setmode(GPIO.BCM)
+  # set the scale to output weights in ounces
+  hx.setUnit(Mass.Unit.OZ)
 
-hx = HX711(dout_pin=DOUT_PIN, pd_sck_pin=SCK_PIN)
+  # zero the scale
+  hx.zero()
 
-def restart_program():
-    """재시작 함수"""
-    GPIO.cleanup()
-    python = sys.executable
-    os.execl(python, python, *sys.argv)
-
-try:
-    while True:
-        try:
-            val = hx.get_raw_data_mean(readings=1)
-            if val is not False:
-                print(val)
-            else:
-                print("invalid")
-        except Exception as e:
-            print("Error:", e, " → 프로그램 재시작")
-            restart_program()
-        time.sleep(0.1)
-
-finally:
-    GPIO.cleanup()
+  # constantly output weights using the median of 35 samples
+  while True:
+    print(hx.weight(35)) #eg. 1.08 oz
