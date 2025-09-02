@@ -92,7 +92,7 @@ HEADLESS      = False
 SPEED_SCALE   = 1.0
 
 # Calibration slope (press 'C' to recalibrate with known mass)
-A = 0.03716
+A = 0.03883
 CAL_MASS_G = 69200.0
 
 # Sampling / smoothing
