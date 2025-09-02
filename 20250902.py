@@ -35,7 +35,7 @@ EMA_ALPHA_SLOW = 0.18
 EMA_ALPHA_FAST = 0.60
 DELTA_RAW_FAST = 250
 PRINT_EVERY    = 0.5
-LOOP_SLEEP     = 0.08
+LOOP_SLEEP     = 0.12
 
 # Zero-Lock
 ZERO_LOCK_THRESHOLD = 5.0  # g
@@ -72,8 +72,9 @@ def _auto_zero(tag="start") -> bool:
     global zero_raw
     raw0 = _measure_zero_raw()
     if raw0 is None:
-        print(f"[CAL] {tag}: zero measurement failed")
-        return False
+    print(f"[CAL] {tag}: zero measurement failed, keeping last zero_raw={zero_raw}")
+    return False
+  
     with state_lock:
         zero_raw = raw0
     print(f"[CAL] {tag}: zero_raw set to {raw0}")
