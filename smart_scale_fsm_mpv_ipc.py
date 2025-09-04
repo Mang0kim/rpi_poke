@@ -170,7 +170,6 @@ def apply_piecewise(M, measured):
 
 MODEL = load_piecewise_model()  # 있으면 사용, 없으면 a,b 폴백
 
-# ==================== 캘리브/측정 ====================
 def load_calib():
     with open(CALIB_PATH, "r") as f:
         return json.load(f)
@@ -250,7 +249,6 @@ def seq1_update_tare():
         tare_offset = acc / cnt
         print(f"[SEQ1] tare updated -> {tare_offset:.3f}kg")
 
-# ==================== Binning ====================
 def kg_bin_round(x):
     if x < 1.0: return None
     b = int(round(x))
@@ -261,7 +259,6 @@ def kg_bin_floor_for_result(x):
     b = int(x)
     return max(1, min(100, b))
 
-# ==================== FSM ====================
 def main():
     global running
 
