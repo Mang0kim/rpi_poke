@@ -90,7 +90,7 @@ def main():
     data_pin, clk_pin = cfg["data_pin"], cfg["clk_pin"]
 
     print("[*] Quadratic calibration")
-    print("    준비물: 0kg, 70kg, 105kg 상태를 순서대로 만들고 각 단계마다 Enter를 누르세요.")
+    print("0kg, 70kg, 105kg state holding and Enter.")
     with SimpleHX711(data_pin, clk_pin, 1, 0) as hx:
         hx.setUnit(Mass.Unit.KG)  # 현재 코드와 동일 기준으로 'measured'를 얻는다
 
@@ -98,7 +98,7 @@ def main():
         measureds = []
 
         for tgt in actuals:
-            input(f" -> {tgt:.0f} kg 상태가 되면 Enter를 누르세요.")
+            input(f" -> {tgt:.0f} kg state check and Enter.")
             m = read_measured(hx, seconds=1.2)
             print(f"    measured = {m:.6f}")
             measureds.append(m)
