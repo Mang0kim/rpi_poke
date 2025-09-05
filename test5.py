@@ -2,6 +2,27 @@
 import os, time, json, threading, socket, subprocess, atexit
 from HX711 import *
 
+# ==================== 경로/상수 ====================
+BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
+VID_DIR    = os.path.join(BASE_DIR, "vid")
+CALIB_PATH = os.path.join(BASE_DIR, "hx711_calibration.json")
+
+THRESH_KG = 1.0
+SEQ1_HOLD_SEC   = 1.5
+SEQ2_STABLE_SEC = 2.5
+SEQ3_FREEZE_SEC = 1.5
+SAMPLES = 10
+WARMUP_SEC = 5.0
+
+MPV_SPEED = "1.0"
+MPV_SOCK  = "/tmp/mpv-smartscale.sock"
+
+# ==================== 전역 ====================
+weight_kg = 0.0
+running   = True
+tare_offset = 0.0
+tare_window_s = 1.0
+
 QUAD_PATH = os.path.join(BASE_DIR, "hx711_quad.json")
 
 def load_quad_model(path=QUAD_PATH):
@@ -23,27 +44,6 @@ def apply_quadratic(Q, measured):
     return Q["c2"]*measured*measured + Q["c1"]*measured + Q["c0"]
 
 QUAD = load_quad_model()
-
-# ==================== 경로/상수 ====================
-BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
-VID_DIR    = os.path.join(BASE_DIR, "vid")
-CALIB_PATH = os.path.join(BASE_DIR, "hx711_calibration.json")
-
-THRESH_KG = 1.0
-SEQ1_HOLD_SEC   = 1.5
-SEQ2_STABLE_SEC = 2.5
-SEQ3_FREEZE_SEC = 1.5
-SAMPLES = 10
-WARMUP_SEC = 5.0
-
-MPV_SPEED = "1.0"
-MPV_SOCK  = "/tmp/mpv-smartscale.sock"
-
-# ==================== 전역 ====================
-weight_kg = 0.0
-running   = True
-tare_offset = 0.0
-tare_window_s = 1.0
 
 # ==================== 유틸: 파일 선택 ====================
 def get_video_path(stem, subdir=None):
